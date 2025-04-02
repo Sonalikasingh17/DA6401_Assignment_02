@@ -1,0 +1,25 @@
+{
+  "os":  "Windows-11-10.0.26100-SP0",
+  "python":  "CPython 3.12.1",
+  "startedAt":  "2025-04-02T14:19:45.099116Z",
+  "program":  "Untitled-1.ipynb",
+  "email":  "ma23c044@smail.iitm.ac.in",
+  "root":  "c:\\Users\\singh\\OneDrive\\Documents\\GitHub\\DA6401_Assignment_02",
+  "host":  "DESKTOP-JJ3VBIC",
+  "executable":  "c:\\Users\\singh\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+  "cpu_count":  4,
+  "cpu_count_logical":  8,
+  "disk":  {
+    "/":  {
+      "total":  "403003969536",
+      "used":  "150231769088"
+    }
+  },
+  "memory":  {
+    "total":  "17006346240"
+  },
+  "cpu":  {
+    "count":  4,
+    "countLogical":  8
+  }
+}
