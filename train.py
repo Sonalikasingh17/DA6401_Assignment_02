@@ -31,3 +31,20 @@ class CNNClassifier(nn.Module):
 # Example usage
 model = CNNClassifier()
 print(model)
+
+
+# Hyperparameter tuning configuration
+# This is a placeholder configuration for hyperparameter tuning.
+
+sweep_config = {
+    'method': 'random',  # Other options: 'grid', 'bayesian'
+    'metric': {'name': 'val_accuracy', 'goal': 'maximize'},
+    'parameters': {
+        'num_filters': {'values': [32, 64, 128]},
+        'activation': {'values': ['ReLU', 'GELU', 'SiLU', 'Mish']},
+        'filter_organization': {'values': ["same", "double", "half"]},
+        'data_augmentation': {'values': ["Yes", "No"]},
+        'batch_norm': {'values': ["Yes", "No"]},
+        'dropout_rate': {'values': [0.2, 0.3]}
+    }
+}
