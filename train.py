@@ -119,6 +119,7 @@ Sweep_config = {
     "num_filters": {"values": [32, 64]},
     "dense_size": {"values": [32, 64, 128]},
     "dropout": {"values": [None, 0.2, 0.3]},
+    "epochs": {"values": [10]}
   }
 }
 
