@@ -1,159 +1,222 @@
 import numpy
 import os
 import wandb
-from pytorch_lightning.loggers import WandbLogger
 import torch
 import torch.nn as nn
-import torchvision.models as models
-import pytorch_lightning as pl
 import torch.nn.functional as F
-from torchvision.models import (
-    resnet50, googlenet, inception_v3, vgg16, efficientnet_v2_s, vit_b_16)
-from torchmetrics import Accuracy
 import torch.optim as optim
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 from torch.utils.data import DataLoader, random_split
 import matplotlib.pyplot as plt
 
-import os
-import wandb
-import torch
-import torchvision.transforms as transforms
-from torchvision.datasets import ImageFolder
-from torch.utils.data import DataLoader, random_split
-from pytorch_lightning import Trainer
-from pytorch_lightning.loggers import WandbLogger
-from pytorch_lightning.callbacks.early_stopping import EarlyStopping
+# Define the CNN Model
+class CNNClassifier(nn.Module):
+    def __init__(self, num_filters=32, filter_multiplier=1, dropout=0.2, batch_norm=False, dense_size=64, num_classes=10,activation='relu'):
+        super(CNNClassifier, self).__init__()
 
-from model import ObjectDetectionModel  
 
-IMG_SIZE = (128, 128)
+        self.activation = {
+            'relu': nn.ReLU(),
+            'silu': nn.SiLU(),
+            'gelu': nn.GELU(),
+            'mish': nn.Mish()
+        }[activation.lower()]
 
-def get_dataloaders(data_dir, batch_size, img_size, data_augmentation):
+
+        self.conv_layers = nn.ModuleList()
+        in_channels = 3  # RGB Images
+
+        for i in range(5):
+            out_channels = num_filters
+            conv_layer = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
+            self.conv_layers.append(conv_layer)
+
+            if batch_norm:
+                self.conv_layers.append(nn.BatchNorm2d(out_channels))
+
+            self.conv_layers.append(self.activation)
+           
+            self.conv_layers.append(nn.MaxPool2d(kernel_size=2, stride=2))
+
+            in_channels = out_channels
+            num_filters = int(num_filters * filter_multiplier)
+
+
+        self.fc1 = nn.Linear(in_channels * 8 * 8, dense_size)
+
+        self.dropout = nn.Dropout(dropout)
+        self.fc2 = nn.Linear(dense_size, num_classes)
+
+
+    def forward(self, x):
+        for layer in self.conv_layers:
+            x = layer(x)
+
+        x = torch.flatten(x, start_dim=1)
+
+    # Get the dynamic input size for fc1
+        if not hasattr(self, 'fc1'):
+            self.fc1 = nn.Linear(x.shape[1], self.dense_size).to(x.device)
+
+        x = self.fc1(x)
+        x = self.dropout(x)
+        x = nn.ReLU()(x)
+        x = self.fc2(x)
+        return x
+
+# Dataset Preparation
+def prepare_dataset(data_dir="inaturalist_12K", augment_data=False, batch_size=256):
+    train_dir = os.path.join(data_dir, "train")
+    test_dir = os.path.join(data_dir, "val")
+
     transform_train = transforms.Compose([
-        transforms.RandomResizedCrop(img_size),
-        transforms.RandomHorizontalFlip(),
-        transforms.RandomRotation(15),
+        transforms.Resize((256, 256)),  # Resize all images to 256x256
+        transforms.RandomRotation(30) if augment_data else transforms.Lambda(lambda x: x),
+        transforms.RandomHorizontalFlip() if augment_data else transforms.Lambda(lambda x: x),
         transforms.ToTensor(),
-    ]) if data_augmentation else transforms.Compose([
-        transforms.Resize(img_size),
-        transforms.ToTensor(),
-    ])
+        transforms.Normalize((0.5,), (0.5,))
+])
 
     transform_test = transforms.Compose([
-        transforms.Resize(img_size),
+        transforms.Resize((256, 256)),  # Resize all images to 256x256
         transforms.ToTensor(),
-    ])
+        transforms.Normalize((0.5,), (0.5,))
+])
 
-    full_dataset = ImageFolder(os.path.join(data_dir, "train"), transform=transform_train)
-    val_size = int(0.1 * len(full_dataset))
-    train_size = len(full_dataset) - val_size
-    train_dataset, val_dataset = random_split(full_dataset, [train_size, val_size])
-    val_dataset.dataset.transform = transform_test  # Use test transform for val
 
-    test_dataset = ImageFolder(os.path.join(data_dir, "val"), transform=transform_test)
+    train_dataset = datasets.ImageFolder(train_dir, transform=transform_train)
+    test_dataset = datasets.ImageFolder(test_dir, transform=transform_test)
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
+    train_size = int(0.9 * len(train_dataset))
+    val_size = len(train_dataset) - train_size
+    train_dataset, val_dataset = random_split(train_dataset, [train_size, val_size])
+
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
     return train_loader, val_loader, test_loader
+
+
+# Sweep Configuration
 '''
-sweep_config = {
+Sweep_config = {
   "name": "Bayesian Sweep",
   "method": "bayes",
   "metric": {
     "name": "val_accuracy",
     "goal": "maximize"
   },
-  "early_terminate": {
-    "type": "hyperband",
-    "min_iter": 3,
-    "s": 2
-  },
   "parameters": {
     "activation": {"values": ["relu", "elu", "selu"]},
-    "filter_size": {"values": [(2,2), (3,3), (4,4)]},
+    "filter_multiplier": {"values": [(2,2), (3,3), (4,4)]},
     "batch_size": {"values": [32, 64]},
     "padding": {"values": ["same", "valid"]},
-    "data_augmentation": {"values": [True, False]},
+    "augment_data": {"values": [True, False]},
     "optimizer": {"values": ["sgd", "adam", "rmsprop", "nadam"]},
-    "batch_normalization": {"values": [True, False]},
-    "batch_normalisation_location": {"values": ["Before", "After"]},
-    "number_of_filters_base": {"values": [32, 64]},
-    "dense_neurons": {"values": [32, 64, 128]},
-    "dropout_location": {"values": ["conv", "dense", "all"]},
-    "dropout_fraction": {"values": [None, 0.2, 0.3]},
-    "global_average_pooling": {"values": [False, True]},
+    "batch_norma": {"values": [True, False]},
+    "num_filters": {"values": [32, 64]},
+    "dense_size": {"values": [32, 64, 128]},
+    "dropout": {"values": [None, 0.2, 0.3]},
   }
 }
 
 sweep_id = wandb.sweep(sweep_config, project='DA6401-Assignment2', entity='ma23c044-indian-institute-of-technology-madras')
-wandb.agent(sweep_id, function=train)
 '''
+# Train function
 def train():
-    # Sweep or default config
-    config_defaults = dict(
-        num_hidden_cnn_layers=5,
-        activation='relu',
-        batch_normalization=True,
-        batch_normalisation_location="After",
-        filter_distribution="double",
-        filter_size=(3, 3),
-        number_of_filters_base=32,
-        dropout_fraction=None,
-        dropout_location="dense",
-        pool_size=(2, 2),
-        padding='same',
-        dense_neurons=128,
-        num_classes=10,
-        optimizer='adam',
-        epochs=5,
-        batch_size=32,
-        data_augmentation=False,
-        global_average_pooling=True,
-        img_size=IMG_SIZE,
-        base_model="RN50",
-        using_pretrained_model=True
-    )
+    config_defaults = {
+        "num_filters": 32,
+        "filter_multiplier": 2,
+        "augment_data": False,
+        "dropout": 0.3,
+        "batch_norm": False,
+        "epochs": 10,
+        "dense_size": 64,
+        "lr": 0.001,
+        "activation": "relu"
+    }
 
-    # Initialize wandb
-    wandb.init(project='DA6401-Assignment2', config=config_defaults, entity='ma23c044-indian-institute-of-technology-madras')
+    wandb.init(project="CNN-Hyperparam-Tuning", config=config_defaults)
     config = wandb.config
+    wandb.run.name = set_run_name(config.num_filters, config.filter_multiplier, config.augment_data, config.dropout, config.batch_norm)
 
-    # Custom run name just like in your TF code
-    wandb.run.name = f"OBJDET_{config.num_hidden_cnn_layers}_dn_{config.dense_neurons}_opt_{config.optimizer}_dro_{config.dropout_fraction}_bs_{config.batch_size}_fd_{config.filter_distribution}_bnl_{config.batch_normalisation_location}_dpl_{config.dropout_location}"
+    # Prepare dataset
+    train_loader, val_loader, _ = prepare_dataset(augment_data=config.augment_data)
 
-    wandb_logger = WandbLogger(log_model="all")
+    # Define model, loss function, optimizer
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = CNNClassifier(
+        num_filters=config.num_filters,
+        filter_multiplier=config.filter_multiplier,
+        dropout=config.dropout,
+        batch_norm=config.batch_norm,
+        dense_size=config.dense_size
+    ).to(device)
 
-    # Data
-    train_loader, val_loader, test_loader = get_dataloaders('./inaturalist_12K', config.batch_size, config.img_size, config.data_augmentation)
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.parameters(), lr=config.lr)
 
-    # Model
-    model = ObjectDetectionModel(
-        IMG_SIZE=config.img_size,
-        modelConfigDict=dict(config),
-        using_pretrained_model=config.using_pretrained_model,
-        base_model=config.base_model
-    )
+    # Training Loop
+    for epoch in range(config.epochs):
+        model.train()
+        running_loss, correct, total = 0.0, 0, 0
 
-    trainer = Trainer(
-        max_epochs=config.epochs,
-        accelerator='auto',
-        logger=wandb_logger,
-        callbacks=[EarlyStopping(monitor="val_loss", patience=3, mode="min")],
-        log_every_n_steps=10
-    )
+        for images, labels in train_loader:
+            images, labels = images.to(device), labels.to(device)
 
-    trainer.fit(model, train_loader, val_loader)
+            optimizer.zero_grad()
+            outputs = model(images)
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimizer.step()
 
-    # Save model checkpoint
-    os.makedirs("./TrainedModel", exist_ok=True)
-    trainer.save_checkpoint(f"./TrainedModel/{wandb.run.name}.ckpt")
+            running_loss += loss.item()
+            _, predicted = outputs.max(1)
+            total += labels.size(0)
+            correct += predicted.eq(labels).sum().item()
 
-    wandb.finish()
+        train_loss = running_loss / len(train_loader)
+        train_accuracy = 100. * correct / total
 
+        # Validation
+        model.eval()
+        val_loss, val_correct, val_total = 0.0, 0, 0
+
+        with torch.no_grad():
+            for images, labels in val_loader:
+                images, labels = images.to(device), labels.to(device)
+                outputs = model(images)
+                loss = criterion(outputs, labels)
+
+                val_loss += loss.item()
+                _, predicted = outputs.max(1)
+                val_total += labels.size(0)
+                val_correct += predicted.eq(labels).sum().item()
+
+        val_loss /= len(val_loader)
+        val_accuracy = 100. * val_correct / val_total
+
+        # Log to WandB
+        wandb.log({
+            "epoch": epoch+1,
+            "train_loss": train_loss,
+            "train_accuracy": train_accuracy,
+            "val_loss": val_loss,
+            "val_accuracy": val_accuracy
+        })
+
+        print(f"Epoch {epoch+1}/{config.epochs} - Train Loss: {train_loss:.4f}, Train Acc: {train_accuracy:.2f}%, Val Loss: {val_loss:.4f}, Val Acc: {val_accuracy:.2f}%")
+
+    print("Training Completed!")
+
+# Function to create readable run names
+def set_run_name(num_filters=32, filter_multiplier=1, augment_data=False, dropout=0.2, batch_norm=False):
+    augment_data_options = {True: "Y", False: "N"}
+    batch_norm_options = {True: "Y", False: "N"}
+    return f"num_{num_filters}_org_{filter_multiplier}_aug_{augment_data_options[augment_data]}_drop_{dropout}_norm_{batch_norm_options[batch_norm]}"
+
+# Run training
 if __name__ == "__main__":
     train()
-
