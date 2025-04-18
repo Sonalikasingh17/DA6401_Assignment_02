@@ -248,7 +248,7 @@ def train():
     config = wandb.config
 
     # Custom run name just like in your TF code
-    wandb.run.name = f"OBJDET_{config.num_hidden_cnn_layers}_dn_{config.dense_neurons}_opt_{config.optimizer}_dro_{config.dropout_fraction}_bs_{config.batch_size}_fd_{config.filter_distribution}_bnl_{config.batch_normalisation_location}_dpl_{config.dropout_location}"
+    wandb.run.name = f"hl_CNN_{config.num_hidden_cnn_layers}_dn_{config.dense_neurons}_opt_{config.optimizer}_dro_{config.dropout_fraction}_bs_{config.batch_size}_fd_{config.filter_distribution}_bnl_{config.batch_normalisation_location}_dpl_{config.dropout_location}"
 
     wandb_logger = WandbLogger(log_model="all")
 
