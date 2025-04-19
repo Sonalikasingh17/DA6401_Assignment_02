@@ -98,33 +98,6 @@ def prepare_dataset(data_dir="inaturalist_12K", augment_data=False, batch_size=2
 
     return train_loader, val_loader, test_loader
 
-
-# Sweep Configuration
-'''
-Sweep_config = {
-  "name": "Bayesian Sweep",
-  "method": "bayes",
-  "metric": {
-    "name": "val_accuracy",
-    "goal": "maximize"
-  },
-  "parameters": {
-    "activation": {"values": ["relu", "elu", "selu"]},
-    "filter_multiplier": {"values": [(2,2), (3,3), (4,4)]},
-    "batch_size": {"values": [32, 64]},
-    "padding": {"values": ["same", "valid"]},
-    "augment_data": {"values": [True, False]},
-    "optimizer": {"values": ["sgd", "adam", "rmsprop", "nadam"]},
-    "batch_norma": {"values": [True, False]},
-    "num_filters": {"values": [32, 64]},
-    "dense_size": {"values": [32, 64, 128]},
-    "dropout": {"values": [None, 0.2, 0.3]},
-    "epochs": {"values": [10]}
-  }
-}
-
-sweep_id = wandb.sweep(sweep_config, project='DA6401-Assignment2', entity='ma23c044-indian-institute-of-technology-madras')
-'''
 # Train function
 def train():
     config_defaults = {
@@ -218,7 +191,34 @@ def set_run_name(num_filters=32, filter_multiplier=1, augment_data=False, dropou
     batch_norm_options = {True: "Y", False: "N"}
     return f"num_{num_filters}_org_{filter_multiplier}_aug_{augment_data_options[augment_data]}_drop_{dropout}_norm_{batch_norm_options[batch_norm]}"
 
+
+# Sweep Configuration
+Sweep_config = {
+  "name": "Bayesian Sweep",
+  "method": "bayes",
+  "metric": {
+    "name": "val_accuracy",
+    "goal": "maximize"
+  },
+  "parameters": {
+    "activation": {"values": ["Relu", "Gelu", "silu", "Mish"]},
+    "filter_multiplier": {"values": [(2,2), (3,3), (4,4)]},
+    "batch_size": {"values": [32, 64]},
+    "padding": {"values": ["same", "valid"]},
+    "augment_data": {"values": [True, False]},
+    "optimizer": {"values": ["sgd", "adam", "rmsprop", "nadam"]},
+    "batch_norma": {"values": [True, False]},
+    "num_filters": {"values": [32, 64]},
+    "dense_size": {"values": [32, 64, 128]},
+    "dropout": {"values": [None, 0.2, 0.3]},
+    "epochs": {"values": [10]}
+  }
+}
+
+
 # Run training
 if __name__ == "__main__":
-    train()
+    sweep_id = wandb.sweep(sweep_config, project='DA6401-Assignment2', entity='ma23c044-indian-institute-of-technology-madras')
+    wandb.agent(sweep_id, function=train, count=10) 
+
 
