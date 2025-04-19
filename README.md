@@ -1,6 +1,8 @@
 # DA6401_Assignment_02
-## PART A
-### CNN Hyperparameter Tuning on iNaturalist12K with PyTorch from Scratch
+** The link to the wandb report: **
+https://wandb.ai/ma23c044-indian-institute-of-technology-madras/inat-cnn-sweep/reports/DA6401-Assignment-02--VmlldzoxMjM0MjI5OQ
+---
+## PART A:  CNN Hyperparameter Tuning on iNaturalist12K with PyTorch from Scratch
 This project implements a **5-layer configurable CNN classifier** using **PyTorch** and performs **hyperparameter optimization** via **Weights & Biases (WandB) Sweeps** on the iNaturalist 12K dataset.
 
 ---
@@ -87,9 +89,7 @@ num_32_org_2_aug_Y_drop_0.3_norm_Y
 pip install torch torchvision wandb matplotlib
 ```
 ---
-PART B
----
-### Transfer Learning on iNaturalist 12K with PyTorch Lightning
+## PART B : Transfer Learning on iNaturalist 12K with PyTorch Lightning
 This repository implements a transfer learning pipeline using various pretrained models on the iNaturalist 12K dataset. It supports model configuration, data augmentation, fine-tuning strategies, and hyperparameter sweeps using Weights & Biases (WandB).
 
 ### Key Features
