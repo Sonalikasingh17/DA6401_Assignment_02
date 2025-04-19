@@ -1,5 +1,5 @@
 # DA6401_Assignment_02
-## PaRT A
+## PART A
 ### CNN Hyperparameter Tuning on iNaturalist12K with PyTorch from Scratch
 This project implements a **5-layer configurable CNN classifier** using **PyTorch** and performs **hyperparameter optimization** via **Weights & Biases (WandB) Sweeps** on the iNaturalist 12K dataset.
 
@@ -72,7 +72,6 @@ parameters:
 ```
 num_32_org_2_aug_Y_drop_0.3_norm_Y
 ```
-
 ---
 
 ##  Testing Script (`test.py`)
@@ -87,3 +86,94 @@ num_32_org_2_aug_Y_drop_0.3_norm_Y
 ```bash
 pip install torch torchvision wandb matplotlib
 ```
+---
+PART B
+---
+### Transfer Learning on iNaturalist 12K with PyTorch Lightning
+This repository implements a transfer learning pipeline using various pretrained models on the iNaturalist 12K dataset. It supports model configuration, data augmentation, fine-tuning strategies, and hyperparameter sweeps using Weights & Biases (WandB).
+
+### Key Features
+- **Transfer learning with pretrained models:**
+  - `ResNet50`
+  - `InceptionV3`
+  - `GoogLeNet`
+  - `VGG16`
+  - `EfficientNetV2-S`
+  - 
+- **Configurable fine-tuning strategies:**
+  - `freeze_all`: Freeze all base model layers.
+  - `unfreeze_all`: Train all layers.
+  - `unfreeze_last_k`: Unfreeze last k layers.
+
+- Supports **data augmentation**
+- **Hyperparameter sweeps** via **Weights & Biases (WandB)** for optimal configuration
+-  Built using **PyTorch Lightning** for clean, modular training workflows
+---
+### Project Structure
+
+### `get_transforms()`
+- Defines image preprocessing and optional data augmentation.
+
+###  `get_dataloaders()`
+- Prepares train, validation, and test `DataLoader`s using the iNaturalist dataset.
+
+###  `TransferModel`
+- PyTorch Lightning model wrapping a base pretrained network with:
+  - A custom classifier head.
+  - Configurable fine-tuning strategies (`freeze_all`, `unfreeze_all`, `unfreeze_last_k`).
+  - Support for multiple optimizers: `adam`, `nadam`, `rmsprop`.
+
+###  Training, Validation, and Testing
+- Implements standard PyTorch Lightning methods:
+  - `training_step`
+  - `validation_step`
+  - `test_step`
+---
+
+### Dataset:
+Image Size: Resized to (224, 224)
+Classes: 10
+Transforms:
+Normal: Resize + ToTensor
+Augmented: + Horizontal Flip, Random Rotation (15°)
+---
+## WandB Sweep Configuration
+We use **Weights & Biases (WandB)** to perform a random search over hyperparameters like:
+- Base model
+- Optimizer
+- Learning rate
+- Batch size
+- Data augmentation toggle
+- Fine-tune strategy and number of layers to unfreeze
+
+Sweep Configuration
+```yaml
+parameters:
+  base_model: ['RN50', 'VGG16', 'GOOGLENET', 'EFFICIENTNETV2', 'IV3']
+  optimizer: ['adam', 'nadam', 'rmsprop']
+  lr: [1e-5, 5e-5, 1e-4, 5e-4, 1e-3]
+  batch_size: [32, 64]
+  augment: [True, False]
+  dense_neurons: [128, 256]
+  finetune_strategy: ['freeze_all', 'unfreeze_all', 'unfreeze_last_k']
+  unfreeze_k: [5, 10, 20]
+```
+### Best Model Configuration (from sweep)
+```
+Base Model       : EFFICIENTNETV2  
+Optimizer        : Nadam  
+Learning Rate    : 7.7e-04  
+Fine-Tune Strat  : freeze_all  
+Dense Neurons    : 128  
+Batch Size       : 64  
+Data Augment     : True  
+```
+### Wandb run name
+```
+bm_EFFICIENTNETV2_opt_nadam_lr_7.7e-04_strat_freeze_all_dn_128_bs_64_aug_True
+```
+### Requirements
+```bash
+pip install torch torchvision pytorch-lightning wandb matplotlib
+```
+
