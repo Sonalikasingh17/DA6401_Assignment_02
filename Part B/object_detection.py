@@ -4,6 +4,7 @@ import wandb
 from pytorch_lightning.loggers import WandbLogger
 import torch
 import torch.nn as nn
+import torchvision
 import torchvision.models as models
 import pytorch_lightning as pl
 import torch.nn.functional as F
@@ -18,261 +19,219 @@ from torch.utils.data import DataLoader, random_split
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 import matplotlib.pyplot as plt
+from pytorch_lightning.loggers import WandbLogger
+
 
 
 BASE_MODELS = {
-                      "RN50": resnet50,
-                      "IV3": inception_v3,
-                      "GOOGLENET": googlenet,
-                      "VGG16": vgg16,
-                      "EFFICIENTNETV2": efficientnet_v2_s,
-                      "VIT": vit_b_16
-                  }
+    "RN50": resnet50,
+    "IV3": inception_v3,
+    "GOOGLENET": googlenet,
+    "VGG16": vgg16,
+    "EFFICIENTNETV2": efficientnet_v2_s,
+}
 
-class ObjectDetectionModel(pl.LightningModule):
-    def __init__(self, IMG_SIZE, modelConfigDict, using_pretrained_model=False, base_model="RN50"):
+DATA_DIR = "./inaturalist_12K"
+IMG_SIZE = (224, 224)
+NUM_CLASSES = 10
+
+
+# -------------------  Transforms & Dataloaders -------------------
+def get_transforms(augment=False):
+    if augment:
+        return transforms.Compose([
+            transforms.Resize(IMG_SIZE),
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomRotation(15),
+            transforms.ToTensor(),
+        ])
+    else:
+        return transforms.Compose([
+            transforms.Resize(IMG_SIZE),
+            transforms.ToTensor(),
+        ])
+
+def get_dataloaders(batch_size, augment):
+    transform = get_transforms(augment)
+    full_dataset = ImageFolder(os.path.join(DATA_DIR, 'train'), transform=transform)
+    train_size = int(0.9 * len(full_dataset))
+    val_size = len(full_dataset) - train_size
+    train_dataset, val_dataset = random_split(full_dataset, [train_size, val_size])
+    test_dataset = ImageFolder(os.path.join(DATA_DIR, 'val'), transform=transform)
+
+    return (
+        DataLoader(train_dataset, batch_size=batch_size, shuffle=True),
+        DataLoader(val_dataset, batch_size=batch_size, shuffle=False),
+        DataLoader(test_dataset, batch_size=batch_size, shuffle=False),
+    )
+
+
+# -------------------  TransferModel with Fine-Tuning Strategy -------------------
+class TransferModel(pl.LightningModule):
+    def __init__(self, base_model_name='RN50', dense_neurons=256, optimizer_name='adam', lr=1e-3,
+                 finetune_strategy='freeze_all', unfreeze_k=0):
         super().__init__()
-
         self.save_hyperparameters()
-      
-        self.modelConfigDict = modelConfigDict
-        self.IMG_HEIGHT = IMG_SIZE[0]
-        self.IMG_WIDTH = IMG_SIZE[1]
-        self.input_channels = 3
-        self.input_shape = (self.IMG_HEIGHT, self.IMG_WIDTH, 3)
 
+        base_model = BASE_MODELS[base_model_name](weights='IMAGENET1K_V1')
+        self.finetune_strategy = finetune_strategy
 
-        self.num_hidden_cnn_layers= modelConfigDict["num_hidden_cnn_layers"]
-        self.activation_fn = self._get_activation_fn(modelConfigDict["activation"])
-        self.batch_normalization = modelConfigDict["batch_normalization"]
-        self.filter_distribution = modelConfigDict["filter_distribution"]
-        self.filter_size = modelConfigDict["filter_size"]
-        self.number_of_filters_base  = modelConfigDict["number_of_filters_base"]
-        self.dropout_fraction = modelConfigDict["dropout_fraction"]
-        self.pool_size = modelConfigDict["pool_size"]
-        self.padding = modelConfigDict["padding"]
-        self.dense_neurons = modelConfigDict["dense_neurons"]
-        self.num_classes = modelConfigDict["num_classes"]
-        self.optimizer = modelConfigDict["optimizer"]
-        self.batch_normalisation_location = modelConfigDict["batch_normalisation_location"]
-
-
-        self.using_pretrained_model = using_pretrained_model
-        self.model = self._build_with_pretrained_model(base_model)
+    
         
-        self.accuracy = Accuracy(task="multiclass", num_classes=self.num_classes)
 
-    def _get_activation_fn(self, name):
-        return {
-            "ReLU": nn.ReLU(),
-            "GELU": nn.GELU(),
-            "SiLU": nn.SiLU(),
-            "Mish": nn.Mish()
-        }.get(name.lower(), nn.ReLU())
+        # Handle model structure for final feature layer
+        if hasattr(base_model, 'fc') and isinstance(base_model.fc, nn.Linear):
+            # ResNet, GoogLeNet, InceptionV3
+            in_features = base_model.fc.in_features
+            base_model.fc = nn.Identity()
 
-    def _build_with_pretrained_model(self, model_name):
-        base_model = BASE_MODELS[model_name](pretrained=True)
-        for param in base_model.parameters():
-            param.requires_grad = False
+        elif hasattr(base_model, 'classifier') and isinstance(base_model.classifier, nn.Sequential):
+            # VGG, AlexNet
+            in_features = base_model.classifier[-1].in_features
+            base_model.classifier = nn.Identity()
 
-
-        dense_neurons = self.modelConfigDict["dense_neurons"]
-
-        if model_name == "RN50":
-            num_feats = base_model.fc.in_features
-            base_model.fc = nn.Sequential(
-                nn.Linear(num_feats, dense_neurons),
-                nn.ReLU(),
-                nn.Linear(dense_neurons, self.num_classes)
-            )
-
-        elif model_name == "VGG16":
-            num_feats = base_model.classifier[6].in_features
-            base_model.classifier[6] = nn.Sequential(
-                nn.Linear(num_feats, dense_neurons),
-                nn.ReLU(),
-                nn.Linear(dense_neurons, self.num_classes)
-            )
-
-        elif model_name in ["IV3", "GOOGLENET"]:
-            num_feats = base_model.fc.in_features
-            base_model.fc = nn.Sequential(
-                nn.Linear(num_feats, dense_neurons),
-                nn.ReLU(),
-                nn.Linear(dense_neurons, self.num_classes)
-            )
-            if model_name == "IV3":
-                base_model.aux_logits = False  # turn off auxiliary logits if not used
-
-        elif model_name == "EFFICIENTNETV2":
-            num_feats = base_model.classifier[1].in_features
-            base_model.classifier[1] = nn.Sequential(
-                nn.Linear(num_feats, dense_neurons),
-                nn.ReLU(),
-                nn.Linear(dense_neurons, self.num_classes)
-            )
-
-        elif model_name == "VIT":
-            num_feats = base_model.heads.head.in_features
-            base_model.heads.head = nn.Sequential(
-                nn.Linear(num_feats, dense_neurons),
-                nn.ReLU(),
-                nn.Linear(dense_neurons, self.num_classes)
-            )
+        elif hasattr(base_model, 'classifier') and isinstance(base_model.classifier, nn.Module):
+            # EfficientNetV2 or MobileNet
+            linear_layers = [m for m in base_model.classifier.modules() if isinstance(m, nn.Linear)]
+            if len(linear_layers) == 1:
+                in_features = linear_layers[0].in_features
+                base_model.classifier = nn.Identity()
+            else:
+                raise ValueError(f"Couldn't find a single Linear layer in {base_model}. Please check the model definition.")
 
         else:
-            raise ValueError(f"Base model {model_name} not supported.")
+            raise ValueError(f"Unknown model structure for: {base_model}")
 
-        return base_model
+
+        self.base_model = base_model
+        self.classifier = nn.Sequential(
+            nn.Linear(in_features, dense_neurons),
+            nn.ReLU(),
+            nn.Linear(dense_neurons, NUM_CLASSES)
+        )
+        self.loss_fn = nn.CrossEntropyLoss()
+
+        self.configure_finetune(finetune_strategy, unfreeze_k)
+
+    def configure_finetune(self, strategy, k):
+        all_params = list(self.base_model.parameters())
+        if strategy == 'freeze_all':
+            for p in all_params:
+                p.requires_grad = False
+        elif strategy == 'unfreeze_all':
+            for p in all_params:
+                p.requires_grad = True
+        elif strategy == 'unfreeze_last_k':
+            for p in all_params[:-k]:
+                p.requires_grad = False
+            for p in all_params[-k:]:
+                p.requires_grad = True
+        else:
+            raise ValueError(f"Invalid strategy: {strategy}")
 
     def forward(self, x):
-        return self.model(x)
+        if self.base_model == "inception_v3":
+           outputs = self.model(x)
+           if isinstance(outputs, tuple):
+              return outputs[0]  # return only the main output
+           return outputs
+        else:
+            return self.base_model(x)
+
 
     def training_step(self, batch, batch_idx):
         x, y = batch
         logits = self(x)
-        loss = F.cross_entropy(logits, y)
-        acc = self.accuracy(logits.softmax(dim=1), y)
-        self.log("train_loss", loss, prog_bar=True)
-        self.log("train_acc", acc, prog_bar=True)
+        loss = self.loss_fn(logits, y)
+        acc = (logits.argmax(dim=1) == y).float().mean()
+        self.log('train_loss', loss, prog_bar=True)
+        self.log('train_acc', acc, prog_bar=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
         x, y = batch
         logits = self(x)
-        loss = F.cross_entropy(logits, y)
-        acc = self.accuracy(logits.softmax(dim=1), y)
-        self.log("val_loss", loss, prog_bar=True)
-        self.log("val_acc", acc, prog_bar=True)
+        loss = self.loss_fn(logits, y)
+        acc = (logits.argmax(dim=1) == y).float().mean()
+        self.log('val_loss', loss, prog_bar=True)
+        self.log('val_acc', acc, prog_bar=True)
+
+    def test_step(self, batch, batch_idx):
+        x, y = batch
+        logits = self(x)
+        acc = (logits.argmax(dim=1) == y).float().mean()
+        self.log('test_acc', acc, prog_bar=True)
 
     def configure_optimizers(self):
-        opt_name = self.modelConfigDict["optimizer"]
-        lr = self.modelConfigDict.get("learning_rate", 1e-3)
-        if opt_name == "adam":
+        lr = self.hparams.lr
+        if self.hparams.optimizer_name == 'adam':
             return torch.optim.Adam(self.parameters(), lr=lr)
-        elif opt_name == "sgd":
-            return torch.optim.SGD(self.parameters(), lr=lr, momentum=0.9)
+        elif self.hparams.optimizer_name == 'nadam':
+            return torch.optim.NAdam(self.parameters(), lr=lr)
+        elif self.hparams.optimizer_name == 'rmsprop':
+            return torch.optim.RMSprop(self.parameters(), lr=lr)
         else:
-            return torch.optim.Adam(self.parameters(), lr=lr)
+            raise ValueError(f"Unsupported optimizer: {self.hparams.optimizer_name}")
 
-
-IMG_SIZE = (128, 128)
-
-def get_dataloaders(data_dir, batch_size, img_size, data_augmentation):
-    transform_train = transforms.Compose([
-        transforms.RandomResizedCrop(img_size),
-        transforms.RandomHorizontalFlip(),
-        transforms.RandomRotation(15),
-        transforms.ToTensor(),
-    ]) if data_augmentation else transforms.Compose([
-        transforms.Resize(img_size),
-        transforms.ToTensor(),
-    ])
-
-    transform_test = transforms.Compose([
-        transforms.Resize(img_size),
-        transforms.ToTensor(),
-    ])
-
-    full_dataset = ImageFolder(os.path.join(data_dir, "train"), transform=transform_train)
-    val_size = int(0.1 * len(full_dataset))
-    train_size = len(full_dataset) - val_size
-    train_dataset, val_dataset = random_split(full_dataset, [train_size, val_size])
-    val_dataset.dataset.transform = transform_test  # Use test transform for val
-
-    test_dataset = ImageFolder(os.path.join(data_dir, "val"), transform=transform_test)
-
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
-
-    return train_loader, val_loader, test_loader
-
-def train():
-    config_defaults = dict(
-        num_hidden_cnn_layers=5,
-        activation='relu',
-        batch_normalization=True,
-        batch_normalisation_location="After",
-        filter_distribution="double",
-        filter_size=(3, 3),
-        number_of_filters_base=32,
-        dropout_fraction=None,
-        dropout_location="dense",
-        pool_size=(2, 2),
-        padding='same',
-        dense_neurons=128,
-        num_classes=10,
-        optimizer='adam',
-        epochs=5,
-        batch_size=32,
-        data_augmentation=False,
-        img_size=IMG_SIZE,
-        base_model="RN50",
-        using_pretrained_model=True
-    )
-
-    # Initialize wandb
-    wandb.init(project='DA6401-Assignment2', config=config_defaults, entity='ma23c044-indian-institute-of-technology-madras')
+# -------------------  Training with WandB Sweep -------------------
+def train_wandb():
+    wandb.init(project="iNat12k-transfer", job_type="sweep", entity = "ma23c044-indian-institute-of-technology-madras")
     config = wandb.config
+              
+    wandb.run.name=f"bm_{wandb.config.base_model}_opt_{wandb.config.optimizer}_lr_{wandb.config.lr:.1e}_strat_{wandb.config.finetune_strategy}_dn_{wandb.config.dense_neurons}_bs_{wandb.config.batch_size}_aug_{wandb.config.augment}"
 
-    # Custom run name just like in your TF code
-    wandb.run.name = f"hl_CNN_{config.num_hidden_cnn_layers}_dn_{config.dense_neurons}_opt_{config.optimizer}_dro_{config.dropout_fraction}_bs_{config.batch_size}_fd_{config.filter_distribution}_bnl_{config.batch_normalisation_location}_dpl_{config.dropout_location}"
 
-    wandb_logger = WandbLogger(log_model="all")
 
-    # Data
-    train_loader, val_loader, test_loader = get_dataloaders('./inaturalist_12K', config.batch_size, config.img_size, config.data_augmentation)
+    # Log sweep strategy
+    wandb.log({
+        'finetune_strategy': config.finetune_strategy,
+        'unfreeze_k': config.unfreeze_k if config.finetune_strategy == 'unfreeze_last_k' else 0
+    })
 
-    # Model
-    model = ObjectDetectionModel(
-        IMG_SIZE=config.img_size,
-        modelConfigDict=dict(config),
-        using_pretrained_model=config.using_pretrained_model,
-        base_model=config.base_model
+    train_loader, val_loader, test_loader = get_dataloaders(
+        batch_size=config.batch_size,
+        augment=config.augment
     )
 
-    trainer = Trainer(
+    model = TransferModel(
+        base_model_name=config.base_model,
+        dense_neurons=config.dense_neurons,
+        optimizer_name=config.optimizer,
+        lr=config.lr,
+        finetune_strategy=config.finetune_strategy,
+        unfreeze_k=config.unfreeze_k
+    )
+
+    wandb_logger = WandbLogger()
+    trainer = pl.Trainer(
         max_epochs=config.epochs,
-        accelerator='auto',
         logger=wandb_logger,
-        callbacks=[EarlyStopping(monitor="val_loss", patience=3, mode="min")],
-        log_every_n_steps=10
+        callbacks=[EarlyStopping(monitor='val_acc', mode='max', patience=3)],
+        accelerator='auto'
     )
 
     trainer.fit(model, train_loader, val_loader)
-
+    trainer.test(model, test_loader)
     wandb.finish()
+
+
+# -------------------  Sweep Config -------------------
 sweep_config = {
-  "name": "Bayesian Sweep",
-  "method": "bayes",
-  "metric": {
-    "name": "val_accuracy",
-    "goal": "maximize"
-  },
-  "early_terminate": {
-    "type": "hyperband",
-    "min_iter": 3,
-    "s": 2
-  },
-  "parameters": {
-    "activation": {"values": ["Relu", "Gelu", "Silu", "Mish]},
-    "filter_size": {"values": [(2,2), (3,3), (4,4)]},
-    "batch_size": {"values": [32, 64]},
-    "padding": {"values": ["same", "valid"]},
-    "data_augmentation": {"values": [True, False]},
-    "optimizer": {"values": ["sgd", "adam", "rmsprop", "nadam"]},
-    "batch_normalization": {"values": [True, False]},
-    "batch_normalisation_location": {"values": ["Before", "After"]},
-    "number_of_filters_base": {"values": [32, 64]},
-    "dense_neurons": {"values": [32, 64, 128]},
-    "dropout_location": {"values": ["conv", "dense", "all"]},
-    "dropout_fraction": {"values": [None, 0.2, 0.3]},
-  }
+    'method': 'random',
+    'metric': {'name': 'val_acc', 'goal': 'maximize'},
+    'parameters': {
+        'base_model': {'values': ['RN50', 'VGG16', 'GOOGLENET','EFFICIENTNETV2','IV3']},
+        'dense_neurons': {'values': [128, 256]},
+        'optimizer': {'values': ['adam', 'nadam', 'rmsprop']},
+        'lr': {'min': 1e-5, 'max': 1e-3},
+        'batch_size': {'values': [32, 64]},
+        'augment': {'values': [True, False]},
+        'epochs': {'value': 5},
+        'finetune_strategy': {'values': ['freeze_all', 'unfreeze_all', 'unfreeze_last_k']},
+        'unfreeze_k': {'values': [5, 10, 20]}
+    }
 }
 
-if __name__ == "__main__":
-    sweep_id = wandb.sweep(sweep_config, project="DA6401-Assignment2", entity='ma23c044-indian-institute-of-technology-madras') 
-    wandb.agent(sweep_id, function=train, count=10)  
-
-
+# Launch sweep
+sweep_id = wandb.sweep(sweep_config, project="iNat12k-transfer",entity = "ma23c044-indian-institute-of-technology-madras")
+wandb.agent(sweep_id, function=train_wandb, count=25)
