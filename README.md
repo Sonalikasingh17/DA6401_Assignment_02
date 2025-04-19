@@ -47,25 +47,6 @@ Trained a **CNN model from scratch** with fully configurable architecture:
  **Train/Validation split** with 90/10 ratio  
 **Logs metrics** (loss/accuracy) to WandB  
 
-### Example Run Name (Auto-generated):
-```
-num_32_org_2_aug_Y_drop_0.3_norm_Y
-```
-
----
-
-##  Testing Script (`test.py`)
-- Loads the trained model  
-- Evaluates on validation/test data  
-- Computes final accuracy and loss  
-- Visualizes predictions using 'matplotlib' and 'wandb'
-
----
-
-### Requirement
-```bash
-pip install torch torchvision wandb matplotlib
-```
 ##  WandB Sweep Configuration
 We used **Bayesian Optimization** to tune the following:
 
@@ -85,4 +66,24 @@ parameters:
   dense_size: [32, 64, 128]
   dropout: [None, 0.2, 0.3]
   epochs: [10]
+```
+
+### Example Run Name (Auto-generated):
+```
+num_32_org_2_aug_Y_drop_0.3_norm_Y
+```
+
+---
+
+##  Testing Script (`test.py`)
+- Loads the trained model  
+- Evaluates on validation/test data  
+- Computes final accuracy and loss  
+- Visualizes predictions using 'matplotlib' and 'wandb'
+
+---
+
+### Requirement
+```bash
+pip install torch torchvision wandb matplotlib
 ```
