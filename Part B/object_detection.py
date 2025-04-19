@@ -187,38 +187,7 @@ def get_dataloaders(data_dir, batch_size, img_size, data_augmentation):
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
 
     return train_loader, val_loader, test_loader
-'''
-sweep_config = {
-  "name": "Bayesian Sweep",
-  "method": "bayes",
-  "metric": {
-    "name": "val_accuracy",
-    "goal": "maximize"
-  },
-  "early_terminate": {
-    "type": "hyperband",
-    "min_iter": 3,
-    "s": 2
-  },
-  "parameters": {
-    "activation": {"values": ["relu", "elu", "selu"]},
-    "filter_size": {"values": [(2,2), (3,3), (4,4)]},
-    "batch_size": {"values": [32, 64]},
-    "padding": {"values": ["same", "valid"]},
-    "data_augmentation": {"values": [True, False]},
-    "optimizer": {"values": ["sgd", "adam", "rmsprop", "nadam"]},
-    "batch_normalization": {"values": [True, False]},
-    "batch_normalisation_location": {"values": ["Before", "After"]},
-    "number_of_filters_base": {"values": [32, 64]},
-    "dense_neurons": {"values": [32, 64, 128]},
-    "dropout_location": {"values": ["conv", "dense", "all"]},
-    "dropout_fraction": {"values": [None, 0.2, 0.3]},
-  }
-}
 
-sweep_id = wandb.sweep(sweep_config, project='DA6401-Assignment2', entity='ma23c044-indian-institute-of-technology-madras')
-wandb.agent(sweep_id, function=train)
-'''
 def train():
     config_defaults = dict(
         num_hidden_cnn_layers=5,
@@ -274,6 +243,36 @@ def train():
     trainer.fit(model, train_loader, val_loader)
 
     wandb.finish()
+sweep_config = {
+  "name": "Bayesian Sweep",
+  "method": "bayes",
+  "metric": {
+    "name": "val_accuracy",
+    "goal": "maximize"
+  },
+  "early_terminate": {
+    "type": "hyperband",
+    "min_iter": 3,
+    "s": 2
+  },
+  "parameters": {
+    "activation": {"values": ["Relu", "Gelu", "Silu", "Mish]},
+    "filter_size": {"values": [(2,2), (3,3), (4,4)]},
+    "batch_size": {"values": [32, 64]},
+    "padding": {"values": ["same", "valid"]},
+    "data_augmentation": {"values": [True, False]},
+    "optimizer": {"values": ["sgd", "adam", "rmsprop", "nadam"]},
+    "batch_normalization": {"values": [True, False]},
+    "batch_normalisation_location": {"values": ["Before", "After"]},
+    "number_of_filters_base": {"values": [32, 64]},
+    "dense_neurons": {"values": [32, 64, 128]},
+    "dropout_location": {"values": ["conv", "dense", "all"]},
+    "dropout_fraction": {"values": [None, 0.2, 0.3]},
+  }
+}
 
 if __name__ == "__main__":
-    train()
+    sweep_id = wandb.sweep(sweep_config, project="DA6401-Assignment2", entity='ma23c044-indian-institute-of-technology-madras') 
+    wandb.agent(sweep_id, function=train, count=10)  
+
+
