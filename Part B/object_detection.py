@@ -226,7 +226,7 @@ sweep_config = {
         'lr': {'min': 1e-5, 'max': 1e-3},
         'batch_size': {'values': [32, 64]},
         'augment': {'values': [True, False]},
-        'epochs': {'value': 5},
+        'epochs': {'value': 3},
         'finetune_strategy': {'values': ['freeze_all', 'unfreeze_all', 'unfreeze_last_k']},
         'unfreeze_k': {'values': [5, 10, 20]}
     }
@@ -234,4 +234,4 @@ sweep_config = {
 
 # Launch sweep
 sweep_id = wandb.sweep(sweep_config, project="iNat12k-transfer",entity = "ma23c044-indian-institute-of-technology-madras")
-wandb.agent(sweep_id, function=train_wandb, count=25)
+wandb.agent(sweep_id, function=train_wandb, count=5)
