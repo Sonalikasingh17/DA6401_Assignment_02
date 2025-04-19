@@ -159,7 +159,7 @@ parameters:
   unfreeze_k: [5, 10, 20]
 ```
 ### Best Model Configuration (from sweep)
-```
+```yaml
 Base Model       : EFFICIENTNETV2  
 Optimizer        : Nadam  
 Learning Rate    : 7.7e-04  
