@@ -22,7 +22,7 @@ import matplotlib.pyplot as plt
 from pytorch_lightning.loggers import WandbLogger
 
 
-
+# MOdels
 BASE_MODELS = {
     "RN50": resnet50,
     "IV3": inception_v3,
