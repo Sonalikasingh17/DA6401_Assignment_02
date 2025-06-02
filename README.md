@@ -35,7 +35,7 @@ Trained a **CNN model from scratch** with fully configurable architecture:
 - Resized to `(256, 256)`
 - Normalized using mean `0.5` and std `0.5`
 - Augmentation enabled via flags
-
+  
 ---
 ### Training Script Highlights (`train.py`)
  **Modular CNN class** with:
