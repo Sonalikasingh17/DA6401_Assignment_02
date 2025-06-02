@@ -47,7 +47,7 @@ class CNNClassifier(nn.Module):
 
         self.dropout = nn.Dropout(dropout)
         self.fc2 = nn.Linear(dense_size, num_classes)
-
+        
 
     def forward(self, x):
         for layer in self.conv_layers:
