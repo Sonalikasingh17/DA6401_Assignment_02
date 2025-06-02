@@ -15,7 +15,7 @@ class CNNClassifier(nn.Module):
     def __init__(self, num_filters=32, filter_multiplier=1, dropout=0.2, batch_norm=False, dense_size=64, num_classes=10,activation='relu'):
         super(CNNClassifier, self).__init__()
 
-
+        
         self.activation = {
             'relu': nn.ReLU(),
             'silu': nn.SiLU(),
