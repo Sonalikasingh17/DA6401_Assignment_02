@@ -4,7 +4,7 @@
 ## PART A:  CNN Hyperparameter Tuning on iNaturalist12K with PyTorch from Scratch
 This project implements a **5-layer configurable CNN classifier** using **PyTorch** and performs **hyperparameter optimization** via **Weights & Biases (WandB) Sweeps** on the iNaturalist 12K dataset.
 ---
-### Training Strategy Used 
+### Training Strategy Used  
 Trained a **CNN model from scratch** with fully configurable architecture:
 
 -  **Number of Conv Layers**: 5
