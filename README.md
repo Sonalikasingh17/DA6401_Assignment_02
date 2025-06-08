@@ -6,7 +6,7 @@ This project implements a **5-layer configurable CNN classifier** using **PyTorc
 ---
 ### Training Strategy Used  
 Trained a **CNN model from scratch** with fully configurable architecture:
- 
+  
 -  **Number of Conv Layers**: 5
 -  **Filter Multiplier**: Scales filters per layer (e.g., 32 → 64 → 128 …)
 -  **Activation Functions**: ReLU, GELU, SiLU, Mish
